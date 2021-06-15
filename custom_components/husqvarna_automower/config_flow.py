@@ -1,28 +1,32 @@
 """Config flow to add the integration via the UI."""
-import logging
+from homeassistant.core import HomeAssistant
+
+# import logging
 from collections import OrderedDict
 
 import voluptuous as vol
 from aioautomower import GetAccessToken, GetMowerData, TokenError
 from aiohttp.client_exceptions import ClientConnectorError, ClientResponseError
-
+from homeassistant.helpers import config_entry_oauth2_flow
+from homeassistant.core import HomeAssistant
 from homeassistant import config_entries
 from homeassistant.const import (
     CONF_ACCESS_TOKEN,
-    CONF_API_KEY,
-    CONF_PASSWORD,
+    CONF_CLIENT_ID,
+    CONF_CLIENT_SECRET,
     CONF_TOKEN,
-    CONF_USERNAME,
 )
 
 from .const import CONF_PROVIDER, CONF_TOKEN_TYPE, DOMAIN
 
 CONF_ID = "unique_id"
 
-_LOGGER = logging.getLogger(__name__)
+# _LOGGER = logging.getLogger(__name__)
 
 
-class HusqvarnaConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
+class HusqvarnaConfigFlowHandler(
+    HomeAssistant, config_entry_oauth2_flow.AbstractOAuth2FlowHandler, domain=DOMAIN
+):
 
     """Handle a config flow."""
 
@@ -31,34 +35,46 @@ class HusqvarnaConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
 
     async def _show_setup_form(self, errors):
         """Show the setup form to the user."""
-        _LOGGER.debug("Show the setup form to the user")
+        # _LOGGER.debug("Show the setup form to the user")
 
         fields = OrderedDict()
-        fields[vol.Required(CONF_API_KEY)] = vol.All(str, vol.Length(min=36, max=36))
-        fields[vol.Required(CONF_USERNAME)] = str
-        fields[vol.Required(CONF_PASSWORD)] = str
+        fields[vol.Required(CONF_CLIENT_ID)] = vol.All(str, vol.Length(min=36, max=36))
+        fields[vol.Required(CONF_CLIENT_SECRET)] = vol.All(
+            str, vol.Length(min=36, max=36)
+        )
 
         return self.async_show_form(
             step_id="user", data_schema=vol.Schema(fields), errors=errors
         )
 
-    async def async_step_user(self, user_input=None):
+    async def async_step_user(self, hass: HomeAssistant, user_input=None):
         """Handle the initial step."""
         errors = {}
         if user_input is None:
             return await self._show_setup_form(errors)
+        self.test = self.async_register_implementation(
+            hass,
+            config_entry_oauth2_flow.LocalOAuth2Implementation(
+                hass,
+                DOMAIN,
+                user_input[CONF_CLIENT_ID],
+                user_input[CONF_CLIENT_SECRET],
+                "https://api.authentication.husqvarnagroup.dev/v1/oauth2/authorize",
+                "https://api.authentication.husqvarnagroup.dev/v1/oauth2/token",
+            ),
+        )
+        # _LOGGER.debug("test: %s", self.test)
         try:
             get_token = GetAccessToken(
-                user_input[CONF_API_KEY],
-                user_input[CONF_USERNAME],
-                user_input[CONF_PASSWORD],
+                user_input[CONF_CLIENT_ID],
+                user_input[CONF_CLIENT_SECRET],
             )
             access_token_raw = await get_token.async_get_access_token()
         except (ClientConnectorError, TokenError):
             errors["base"] = "auth"
             return await self._show_setup_form(errors)
         except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
+            # _LOGGER.exception("Unexpected exception")
             errors["base"] = "auth"
             return await self._show_setup_form(errors)
 
@@ -70,12 +86,12 @@ class HusqvarnaConfigFlowHandler(config_entries.ConfigFlow, domain=DOMAIN):
                 access_token_raw[CONF_TOKEN_TYPE],
             )
             mower_data = await get_mower_data.async_mower_state()
-            _LOGGER.debug("config: %s", mower_data)
+            # _LOGGER.debug("config: %s", mower_data)
         except (ClientConnectorError, ClientResponseError):
             errors["base"] = "mower"
             return await self._show_setup_form(errors)
         except Exception:  # pylint: disable=broad-except
-            _LOGGER.exception("Unexpected exception")
+            # _LOGGER.exception("Unexpected exception")
             errors["base"] = "unknown"
             return await self._show_setup_form(errors)
         unique_id = user_input[CONF_API_KEY]
